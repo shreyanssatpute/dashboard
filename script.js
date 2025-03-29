@@ -15,7 +15,6 @@ const modalId = document.getElementById('modal-id');
 
 // Constants
 const LOCAL_STORAGE_KEY = 'dashboard_events';
-const SESSION_STORAGE_KEY = 'dashboard_events';
 
 // Variables
 let allEvents = [];
@@ -23,49 +22,83 @@ let filteredEvents = [];
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    // Check for event ID in URL parameters
+    checkUrlForEventId();
+    
+    // Load existing events
     loadEvents();
+    
+    // Setup event listeners
     setupEventListeners();
-    checkForNewEvents();
 });
 
-// Load events from storage
-function loadEvents() {
-    // Try to load from localStorage first (persistent storage)
-    const storedEvents = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (storedEvents) {
-        allEvents = JSON.parse(storedEvents);
+// Check URL for event ID parameter
+function checkUrlForEventId() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventId = urlParams.get('eventId');
+    
+    if (eventId) {
+        // Try to get the event data from localStorage
+        const eventData = localStorage.getItem(`dashboard_event_${eventId}`);
+        
+        if (eventData) {
+            try {
+                const event = JSON.parse(eventData);
+                
+                // Add formatted time for display
+                const timestamp = new Date(event.timestamp);
+                event.formattedTime = timestamp.toLocaleString();
+                
+                // Add to events array
+                addEvent(event);
+                
+                // Clear the URL parameter to avoid duplicate imports on refresh
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                // Show notification
+                showNotification('New event received');
+            } catch (error) {
+                console.error('Error parsing event data:', error);
+            }
+        }
+    }
+}
+
+// Add an event to the dashboard
+function addEvent(event) {
+    // Check if event already exists
+    const existingEventIndex = allEvents.findIndex(e => e.id === event.id);
+    
+    if (existingEventIndex === -1) {
+        // Add new event
+        allEvents.push(event);
+    } else {
+        // Update existing event
+        allEvents[existingEventIndex] = event;
     }
     
-    // Check sessionStorage for new events from the camera page
-    const sessionEvents = sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (sessionEvents) {
-        const newEvents = JSON.parse(sessionEvents);
-        
-        // Merge events and remove duplicates
-        const mergedEvents = [...allEvents, ...newEvents];
-        allEvents = mergedEvents.filter((event, index, self) => 
-            index === self.findIndex((e) => e.id === event.id)
-        );
-        
-        // Save merged events back to localStorage
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(allEvents));
-        
-        // Clear sessionStorage after processing
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    }
+    // Save to localStorage
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(allEvents));
     
+    // Update UI
     updateStats();
     applyFilters();
 }
 
-// Check for new events periodically
-function checkForNewEvents() {
-    setInterval(() => {
-        const sessionEvents = sessionStorage.getItem(SESSION_STORAGE_KEY);
-        if (sessionEvents) {
-            loadEvents();
+// Load events from localStorage
+function loadEvents() {
+    const storedEvents = localStorage.getItem(LOCAL_STORAGE_KEY);
+    
+    if (storedEvents) {
+        try {
+            allEvents = JSON.parse(storedEvents);
+            updateStats();
+            applyFilters();
+        } catch (error) {
+            console.error('Error loading events:', error);
+            allEvents = [];
         }
-    }, 2000);
+    }
 }
 
 // Setup event listeners
@@ -128,7 +161,7 @@ function applyFilters() {
         
         // Search term
         if (searchTerm) {
-            const eventText = `${event.cameraName} ${event.formattedTime}`.toLowerCase();
+            const eventText = `${event.cameraName} ${event.formattedTime || ''}`.toLowerCase();
             if (!eventText.includes(searchTerm)) {
                 return false;
             }
@@ -171,10 +204,10 @@ function createEventCard(event) {
     const card = document.createElement('div');
     card.className = 'event-card';
     card.innerHTML = `
-        <img src="${event.imageData}" alt="Event at ${event.formattedTime}" class="event-image">
+        <img src="${event.imageData}" alt="Event at ${event.formattedTime || ''}" class="event-image">
         <div class="event-details">
             <div class="event-camera">${event.cameraName}</div>
-            <div class="event-timestamp">${event.formattedTime}</div>
+            <div class="event-timestamp">${event.formattedTime || new Date(event.timestamp).toLocaleString()}</div>
         </div>
     `;
     
@@ -190,7 +223,7 @@ function createEventCard(event) {
 function openEventModal(event) {
     modalImage.src = event.imageData;
     modalCamera.textContent = event.cameraName;
-    modalTimestamp.textContent = event.formattedTime;
+    modalTimestamp.textContent = event.formattedTime || new Date(event.timestamp).toLocaleString();
     modalId.textContent = event.id;
     
     eventModal.style.display = 'flex';
@@ -209,4 +242,51 @@ function updateStats() {
     });
     
     todayEventsElement.textContent = todayEvents.length;
+}
+
+// Show notification
+function showNotification(message) {
+    // Create notification element if it doesn't exist
+    let notification = document.getElementById('notification');
+    
+    if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.className = 'notification';
+        document.body.appendChild(notification);
+        
+        // Add styles if not already in CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            .notification {
+                position: fixed;
+                bottom: 30px;
+                left: 50%;
+                transform: translateX(-50%) translateY(100px);
+                background-color: rgba(0, 0, 0, 0.8);
+                color: white;
+                padding: 12px 25px;
+                border-radius: 30px;
+                font-size: 0.9rem;
+                opacity: 0;
+                transition: all 0.3s ease;
+                z-index: 1000;
+            }
+            
+            .notification.show {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Set message and show
+    notification.textContent = message;
+    notification.classList.add('show');
+    
+    // Hide after 3 seconds
+    setTimeout(() => {
+        notification.classList.remove('show');
+    }, 3000);
 }
